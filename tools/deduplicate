@@ -1,0 +1,213 @@
+#! /usr/bin/env perl
+# See bottom of file for license and copyright information
+use strict;
+use warnings;
+
+use Digest::SHA qw(sha512);
+use File::Find;
+
+my $masters = {};
+my $simulate = 0;
+my $followSymLinks = 1;
+
+my @masterOnly = ();
+my @skip = ();
+
+my $files = 0;
+my $unique = 0;
+my $alreadyLinked = 0;
+my $linked = 0;
+my $updated = 0;
+my $errors = 0;
+
+my $colours = {
+    error => "\033[1;31m",
+    info => "\033[0;32m",
+    action => "\033[1;35m",
+    noaction => "\033[0;36m",
+    normal => "\033[0m"
+};
+
+sub regexify {
+    my ( $string ) = @_;
+
+    $string =~ s#([^?*]*)([?*]|$)#quotemeta($1).(($2) ? ".$2" : '')#ge;
+    return "^$string\$";
+}
+
+sub hardlink {
+    my ($from, $to) = @_;
+
+    unless (unlink $to) {
+        print "$colours->{error}unable to delete old file$colours->{normal}\n";
+        $errors++;
+        return;
+    }
+    unless (link $from, $to) {
+        print "$colours->{error}ERROR\n\nCRITICAL:\n\nunable to create hardlink $from -> $to\nPlease restore $to by copying $to or hardlinking to it!$colours->{normal}\n";
+        exit 1;
+    }
+    print "linked\n";
+    return 1;
+}
+
+sub wanted {
+    my $file = $File::Find::name;
+    return if -d $file;
+    foreach my $reg ( @skip ) {
+        return if $file =~ m#$reg#;
+    }
+    print "checking $file...";
+    $files++;
+    unless (-e $file) {
+        print "$colours->{error}does not exist!$colours->{normal}\n";
+        $errors++;
+        return;
+    }
+    unless (-r $file) {
+        print "$colours->{error}could not read!$colours->{normal}\n";
+        $errors++;
+        return;
+    }
+    my $sha = Digest::SHA->new(512);
+    $sha->addfile($file);
+    my $hash = $sha->digest;
+
+    my @stat = stat $file;
+
+    if ( defined $masters->{$hash} ) {
+        my $masterOnly = 0;
+        foreach my $reg ( @masterOnly ) {
+            if ( $file =~ m#$reg# ) {
+                $masterOnly = 1;
+                last;
+            }
+        }
+
+        if ( $masterOnly ) {
+            print "$colours->{noaction}skipped (masteronly)$colours->{normal}\n";
+        } else {
+            if ($stat[3] gt 1) {
+                if($stat[1] eq $masters->{$hash}->{inode}) {
+                    print "$colours->{noaction}already hardlinked$colours->{normal}\n";
+                    $alreadyLinked++;
+                } else {
+                    if($simulate) {
+                        print "$colours->{action}(simulate) would update hardlink$colours->{normal}\n";
+                    } else {
+                        print "$colours->{action}updating hardlink$colours->{normal}...";
+                        hardlink($masters->{$hash}->{file}, $file);
+                    }
+                    $updated++;
+                }
+                return;
+            }
+
+            if($simulate) {
+                print "$colours->{action}(simulate) would hardlink$colours->{normal}\n";
+            } else {
+                print "$colours->{action}hardlinking$colours->{normal}...";
+                hardlink($masters->{$hash}->{file}, $file);
+            }
+            $linked++;
+        }
+    } else {
+        print "$colours->{info}new master$colours->{normal}\n";
+        $masters->{$hash}->{file} = $file;
+        $masters->{$hash}->{inode} = $stat[1];
+        $unique++;
+    }
+}
+
+my @dirs = ();
+my $help = 0;
+foreach my $param (@ARGV) {
+    if($param =~ m#^--no-?colou?rs?$#) {
+        $colours = {
+            error => '',
+            info => '',
+            action => '',
+            noaction => '',
+            normal => ''
+        }
+    } elsif ($param eq '--simulate') {
+        $simulate = 1;
+    } elsif ($param =~ m#^--skip=(.*)#) {
+        push( @skip, regexify($1) );
+    } elsif ($param =~ m#^--master-only=(.*)#) {
+        push( @masterOnly, regexify($1) );
+    } elsif ($param eq '--no-follow-symlinks') {
+        $followSymLinks = 0;
+    } elsif ($param eq '--help') {
+        $help = 1;
+    } elsif ($param =~ m#^--#) {
+        print "unknown option: '$param'\nuse --help for help\n";
+        exit 1;
+    } else {
+        push(@dirs, $param);
+    }
+}
+
+if($help || not scalar @dirs) {
+    print <<HELP
+Usage: ./tools/deduplicate [pub/webname] [pub/otherweb] ... [options]
+
+Options:
+ --nocolours (also --no-colours --no-colors --nocolors --nocolour --nocolor): disable coloured output
+ --simulate: do not actually create hardlinks, just tell me what you would do
+ --skip: do not touch files matching this; multiple possible (eg. --skip=pub/_apps/*)
+ --master-only: files matching this will not be modified, however they can be linked to (eg. --master-only=pub/System/*)
+ --no-follow-symlinks: do not follow symlinks
+ --help: this screen
+HELP
+} else {
+    my $haveErrors = 0;
+    foreach my $dir ( @dirs ) {
+        unless ( -d $dir ) {
+            print "Not a directory: $dir\n";
+            exit 1;
+        }
+    }
+
+    my %options = ( wanted => \&wanted, no_chdir => 1 );
+    $options{follow_fast} = 1 if $followSymLinks;
+    find( \%options, @dirs);
+
+    print <<REPORT;
+
+Report:
+Files probed: $files
+Unique files $unique
+Files already linked: $alreadyLinked
+Links updated: $updated
+Files newly $linked
+Errors: $errors
+REPORT
+    print "This was just a simulation\n" if $simulate;
+}
+
+__END__
+Foswiki - The Free and Open Source Wiki, http://foswiki.org/
+
+Copyright (C) 2008-2010 Foswiki Contributors. Foswiki Contributors
+are listed in the AUTHORS file in the root of this distribution.
+NOTE: Please extend that file, not this notice.
+
+Additional copyrights apply to some or all of the code in this
+file as follows:
+
+Copyright (C) 1999-2007 Peter Thoeny, peter@thoeny.org
+and TWiki Contributors. All Rights Reserved. TWiki Contributors
+are listed in the AUTHORS file in the root of this distribution.
+
+This program is free software; you can redistribute it and/or
+modify it under the terms of the GNU General Public License
+as published by the Free Software Foundation; either version 2
+of the License, or (at your option) any later version. For
+more details read LICENSE in the root of this distribution.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+As per the GPL, removal of this notice is prohibited.

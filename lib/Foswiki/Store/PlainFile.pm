@@ -245,12 +245,12 @@ sub copyAttachment {
     my $oldbase = _getPub($oldTopicObject);
     if ( _e "$oldbase/$oldAtt" ) {
         my $newbase = _getPub($newTopicObject);
-        _copyFile(
+        _linkFile(
             _latestFile( $oldTopicObject, $oldAtt ),
             _latestFile( $newTopicObject, $newAtt )
         );
         if ( -e _historyDir( $oldTopicObject, $oldAtt ) ) {
-            _copyFile(
+            _linkFile(
                 _historyDir( $oldTopicObject, $oldAtt ),
                 _historyDir( $newTopicObject, $newAtt )
             );
@@ -962,6 +962,42 @@ sub removeSpuriousLeases {
     }
 }
 
+# Copy a topic and all attachments (by hardlinking them).
+sub copyTopic {
+    my ( $this, $oldTopicObject, $newTopicObject, $cUID ) = @_;
+
+    Foswiki::Store::PlainFile::_saveDamage($oldTopicObject);
+
+    my @revs;
+    my $rev = _numRevisions( \@revs, $oldTopicObject );
+
+    _linkFile( _latestFile($oldTopicObject), _latestFile($newTopicObject) );
+    _linkFile( _historyDir($oldTopicObject), _historyDir($newTopicObject) );
+    my $pub = _getPub($oldTopicObject);
+    if ( _d $pub ) {
+        _linkFile( $pub, _getPub($newTopicObject) );
+    }
+    if ( $Foswiki::Store::STORE_FORMAT_VERSION < 1.2 ) {
+        if ( $newTopicObject->web ne $oldTopicObject->web ) {
+            $this->recordChange(
+                cuid     => $cUID,
+                revision => $rev,
+                verb     => 'copy',
+                oldpath  => $oldTopicObject->getPath(),
+                path     => $newTopicObject->getPath()
+            );
+        }
+        $this->recordChange(
+            cuid     => $cUID,
+            revision => $rev,
+            verb     => 'copy',
+            oldpath  => $oldTopicObject->getPath(),
+            path     => $newTopicObject->getPath()
+        );
+    }
+}
+
+
 #############################################################################
 # PRIVATE FUNCTIONS
 #############################################################################
@@ -1385,6 +1421,7 @@ sub _saveFile {
     my ( $file, $text ) = @_;
     _mkPathTo($file);
     my $efile = _encode( $file, 1 );
+    unlink $efile if -e $efile;
     my $fh;
     open( $fh, '>', $efile )
       or die("PlainFile: failed to create file $file: $!");
@@ -1409,6 +1446,7 @@ sub _saveStream {
     _mkPathTo($file);
     my $F;
     my $efile = _encode( $file, 1 );
+    unlink $efile if -e $file;
     open( $F, '>', $efile ) or die "PlainFile: open $file failed: $!";
     binmode($F) or die "PlainFile: failed to binmode $file: $!";
     my $text;
@@ -1570,6 +1608,31 @@ sub _split {
     push( @list, '' ) if ($nl);
 
     return \@list;
+}
+
+# Hard-link a file or directory from one absolute file path to another.
+# if the destination already exists it's an error.
+sub _linkFile {
+    my ( $from, $to ) = @_;
+
+    die "HardlinkedPlainFile: link target $to already exists" if _e $to;
+    _mkPathTo($to);
+    my $ok;
+    my $efrom = _encode($from);
+    my $eto = _encode($to);
+    if ( -d $efrom ) {
+        $ok = 1;
+        foreach my $src ( <$efrom/*> ) {
+            my $dst = $src;
+            $dst =~ s#^$efrom#$eto#;
+            $ok = 0 unless _linkFile( $src, $dst );
+        }
+    }
+    else {
+        $ok = link( $efrom, $eto );
+        $ok = File::Copy::copy( $efrom, $eto ) unless $ok;
+    }
+    $ok or die "HardlinkedPlainFile: link $from to $to failed: $!";
 }
 
 1;
