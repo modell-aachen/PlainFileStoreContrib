@@ -54,6 +54,7 @@ sub hardlink {
 sub wanted {
     my $file = $File::Find::name;
     return if -d $file;
+    return if -l $file;
     foreach my $reg ( @skip ) {
         return if $file =~ m#$reg#;
     }
