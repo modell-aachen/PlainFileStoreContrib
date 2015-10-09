@@ -1623,6 +1623,7 @@ sub _linkFile {
     if ( -d $efrom ) {
         $ok = 1;
         foreach my $src ( <$efrom/*> ) {
+            my $src = _decode($src);
             my $dst = $src;
             $dst =~ s#^$efrom#$eto#;
             $ok = 0 unless _linkFile( $src, $dst );
