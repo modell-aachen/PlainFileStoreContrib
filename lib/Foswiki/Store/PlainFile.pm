@@ -1625,7 +1625,7 @@ sub _linkFile {
         foreach my $src ( <$efrom/*> ) {
             my $src = _decode($src);
             my $dst = $src;
-            $dst =~ s#^$efrom#$eto#;
+            $dst =~ s#^\Q$from\E#$to#;
             $ok = 0 unless _linkFile( $src, $dst );
         }
     }
