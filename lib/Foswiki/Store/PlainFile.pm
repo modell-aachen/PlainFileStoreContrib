@@ -416,7 +416,7 @@ sub getVersionInfo {
     my @revs;
     my $nr = _numRevisions( \@revs, $meta, $attachment );
     my $is_latest = 0;
-    if ( $rev && $rev > 0 && $rev < $nr ) {
+    if ( $rev && $rev > 0 && $rev <= $nr ) {
         $df = _historyFile( $meta, $attachment, $rev );
         unless ( _e $df ) {
 
