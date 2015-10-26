@@ -187,7 +187,9 @@ sub readTopic {
       $ri{version} ||= $version;
     $ri{date} ||= ( _stat( _latestFile($meta) ) )[9];
     if ( $meta->get('TOPICINFO') ) {
-        $ri{comment} ||= $meta->get('TOPICINFO')->{comment};
+        my $topicinfo = $meta->get('TOPICINFO');
+        $ri{comment} ||= $topicinfo->{comment};
+        $ri{date} = $topicinfo->{date} if $topicinfo->{date};
     }
 
     $meta->setRevisionInfo(%ri);
@@ -1172,6 +1174,23 @@ DONE
     unless ($attachment) {
         my $t = _readTextFile($latest);
 
+        my $latestRev = $revs[0];
+        $latestRev = $revs[-1] if $revs[-1] > $latestRev;
+        my $histFile = _historyFile( $meta->web(), $meta->topic(), $attachment, $latestRev);
+        if(_e $histFile) {
+            my $histText = _readTextFile($histFile);
+
+            if(defined $histText && $histText eq $t) {
+                # ok, content didn't change, just give it the correct timestamp
+                my $date = $meta->get('TOPICINFO')->{date};
+                if($date) {
+                    _utime($date, $date, $latest);
+                    _utime($date, $date, $histFile);
+                }
+                return;
+            }
+        }
+
         $t =~ s/^%META:TOPICINFO\{(.*)\}%$//m;
         $t =
             '%META:TOPICINFO{author="'
@@ -1630,8 +1649,16 @@ sub _linkFile {
         }
     }
     else {
+        my $mtime = ( stat $efrom )[9];
         $ok = link( $efrom, $eto );
-        $ok = File::Copy::copy( $efrom, $eto ) unless $ok;
+        if($ok) {
+            # unfortunately the link also changed the mtime
+            # setting it back to the original value
+            # (or this will be detected as a change)
+            _utime($mtime, $mtime, $eto);
+        } else {
+            $ok = File::Copy::copy( $efrom, $eto );
+        }
     }
     $ok or die "HardlinkedPlainFile: link $from to $to failed: $!";
 }
