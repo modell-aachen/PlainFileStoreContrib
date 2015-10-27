@@ -1642,7 +1642,8 @@ sub _linkFile {
     if ( -d $efrom ) {
         $ok = 1;
         foreach my $src ( <$efrom/*> ) {
-            my $src = _decode($src);
+            $src = Foswiki::Sandbox::untaintUnchecked( $src );
+            $src = _decode($src);
             my $dst = $src;
             $dst =~ s#^\Q$from\E#$to#;
             $ok = 0 unless _linkFile( $src, $dst );
