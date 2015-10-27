@@ -748,9 +748,11 @@ sub eachAttachment {
 sub eachTopic {
     my ( $this, $meta ) = @_;
 
+    require Foswiki::ListIterator;
+
     my $dh;
     opendir( $dh, _encode( _getData( $meta->web ), 1 ) )
-      or return ();
+      or return new Foswiki::ListIterator( () );
 
     # the name filter is used to ensure we don't return filenames
     # that contain illegal characters as topic names.
@@ -760,7 +762,6 @@ sub eachTopic {
       grep { !/$Foswiki::cfg{NameFilter}/ && /\.txt$/ } _readdir($dh);
     closedir($dh);
 
-    require Foswiki::ListIterator;
     return new Foswiki::ListIterator( \@list );
 }
 
