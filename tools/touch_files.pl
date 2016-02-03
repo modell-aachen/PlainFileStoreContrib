@@ -20,10 +20,12 @@ my $session = Foswiki->new('admin');
 
 use Foswiki::Store::PlainFile;
 
-my ($web, $topic);
+my ($web, $topic, $help);
 for (my $i = 0; $i <= $#ARGV; $i++) {
     my $param = $ARGV[$i];
-    if ($param =~ m#^-?-?web=(.*)#) {
+    if ($param =~ m#^-?-?help#) {
+        $help = 1;
+    } elsif ($param =~ m#^-?-?web=(.*)#) {
         $web = $1;
     } elsif ($param =~ m#^-?-?topic=(.*)#) {
         $topic = $1;
@@ -36,20 +38,19 @@ for (my $i = 0; $i <= $#ARGV; $i++) {
     }
 }
 
-my $web = $ARGV[0];
-unless ($web) {
+if ($help) {
     print <<'MESSAGE';
 This script will set the mtime of all data / pub files to the value of their
 corresponding metadata.
 
 Usage:
-./virtualhosts-touch_files [web=...] [topic=...]
+./touch_files [web=...] [topic=...]
 
 or
-./virtualhosts-touch_files [--web=...] [--topic=...]
+./touch_files [--web=...] [--topic=...]
 
 or
-./virtualhosts-touch_files [--web ...] [--topic ...]
+./touch_files [--web ...] [--topic ...]
 
 Parameters:
     web: (optional) 'all' or any web

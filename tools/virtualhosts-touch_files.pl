@@ -19,10 +19,12 @@ use Foswiki ();
 use Foswiki::Contrib::VirtualHostingContrib::VirtualHost ();
 use Foswiki::Store::PlainFile;
 
-my ($host, $web, $topic);
+my ($host, $web, $topic, $help);
 for (my $i = 0; $i <= $#ARGV; $i++) {
     my $param = $ARGV[$i];
-    if ($param =~ m#^-?-?host=(.*)#) {
+    if ($param =~ m#^-?-?help#) {
+        $help = 1;
+    } elsif ($param =~ m#^-?-?host=(.*)#) {
         $host = $1;
     } elsif ($param =~ m#^-?-?web=(.*)#) {
         $web = $1;
@@ -39,7 +41,7 @@ for (my $i = 0; $i <= $#ARGV; $i++) {
     }
 }
 
-unless ($host) {
+if ($help || not $host) {
     print <<'MESSAGE';
 This script will set the mtime of all data / pub files to the value of their
 corresponding metadata.
