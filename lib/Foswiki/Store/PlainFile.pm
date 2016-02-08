@@ -1665,6 +1665,161 @@ sub _linkFile {
     $ok or die "HardlinkedPlainFile: link $from to $to failed: $!";
 }
 
+# checks mtimes in data / pub
+# called by tools/touch_history_files
+#
+# Code might not win beauty contests.
+sub touchFiles {
+    my ( $store, $session, $logger, $web, $topic ) = @_;
+
+    sub checkAttachmentsHistory {
+        my ( $meta, $attachments, $logger, $processedAttachments, $rev, $ehistDir, $eachWeb, $eachTopic ) = @_;
+        my $histDir = _decode($ehistDir);
+        foreach my $attachment ( $meta->find('FILEATTACHMENT') ) {
+            my $name = $attachment->{name};
+            my $date = $attachment->{date};
+            my $version = $attachment->{version};
+            my $ename = _encode($name || '');
+            unless ( $name && $date && $version ) {
+                $logger->("      * !ERROR! Attachment $ename has no name or date or version at topic revision $rev\n");
+                next;
+            }
+            next unless $attachments->{$name}; # moved away
+            # check current version
+            my $pubFile = "$histDir/ATTACHMENTS/$name/$version";
+            my $epubFile = _encode($pubFile);
+            next if $processedAttachments->{$epubFile};
+            $processedAttachments->{$epubFile} = 1;
+            unless ( _e $pubFile ) {
+                $logger->("      * !ERROR! Attachment $ename does not exist at attachment revision $version\n");
+                next;
+            }
+            my $fileDate = ( _stat $pubFile )[9];
+            if ( $fileDate != $attachment->{date} ) {
+                my $pubFileM = "$pubFile.m";
+                my $epubFileM = _encode($pubFileM);
+                $logger->("      * mdate $fileDate != stored date $attachment->{date} -> touching $epubFile\n");
+                _utime($attachment->{date}, $attachment->{date}, $pubFile);
+                _utime($attachment->{date}, $attachment->{date}, $pubFileM) if _e $pubFileM;
+            }
+        }
+    }
+
+    sub checkAttachmentsCurrent {
+        my ( $meta, $attachments, $logger, $eachWeb, $eachTopic ) = @_;
+
+        foreach my $attachment ( $meta->find('FILEATTACHMENT') ) {
+            my $name = $attachment->{name};
+            my $date = $attachment->{date};
+            my $version = $attachment->{version} || 1;
+            my $ename = _encode($name || '');
+            $logger->("      * attachment $ename\n");
+            $attachments->{$name} = 1;
+            unless ( $name && $date ) {
+                $logger->("      * !ERROR! Attachment has no name or date\n");
+                next;
+            }
+            # check current version
+            my $pubFile = _getPub("$eachWeb/$eachTopic/$name");
+            my $epubFile = _encode($pubFile);
+            unless ( _e $pubFile ) {
+                $logger->("      * !ERROR! Attachment does not exist in pub\n");
+                next;
+            }
+            my $fileDate = ( _stat $pubFile )[9];
+            if ( $fileDate != $attachment->{date} ) {
+                $logger->("      * mdate $fileDate != stored date $attachment->{date} -> touching $epubFile\n");
+                _utime($attachment->{date}, $attachment->{date}, $pubFile);
+            }
+        }
+    }
+
+    my @webs;
+    if($web) {
+        @webs = ( $web );
+    } else {
+        @webs = Foswiki::Func::getListOfWebs();
+    }
+
+    foreach my $eachWeb ( @webs ) {
+        my @topics;
+        if($topic) {
+            @topics = ( $topic );
+        } else {
+            @topics = map{ _encode($_); } Foswiki::Func::getTopicList( $eachWeb );
+        }
+        foreach my $eachTopic ( @topics ) {
+            $logger->("   * checking $eachWeb.$eachTopic\n");
+
+            my ($text, $txtFile, $etxtFile);
+            try {
+                $etxtFile =  _getData("$eachWeb/$eachTopic") . ".txt";
+                $txtFile = _decode($etxtFile);
+                $text = _readTextFile($txtFile);
+            } otherwise {
+                $logger->("      * !ERROR! " . shift . "\n");
+            };
+            next unless defined $text;
+
+            # check .txt file
+            my $meta = Foswiki::Meta->new( $session, $eachWeb, $eachTopic, $text );
+            my $topicinfo = $meta->get('TOPICINFO');
+            if ( $topicinfo ) {
+                my $fileDate = ( _stat $txtFile )[9];
+                if($topicinfo->{date} != $fileDate) {
+                    $logger->("      * mdate $fileDate != stored date $topicinfo->{date} -> touching $etxtFile\n");
+                    _utime($topicinfo->{date}, $topicinfo->{date}, $txtFile);
+                    my $mFile = _decode($etxtFile.'.m');
+                    _utime($topicinfo->{date}, $topicinfo->{date}, $mFile) if _e $mFile;
+                }
+            }
+
+            # check history of .txt file
+            my $ehistDir = _historyDir( $meta );
+            my $histDir = _decode($ehistDir);
+            my $revs = [];
+            try {
+                _loadRevs( $revs, $histDir );
+            } otherwise {
+                $logger->("      * !ERROR! Could not load revs: " . shift . "\n");
+            };
+
+            # check attachments in current rev
+            my $attachments = {}; # attachments existing in latest topic rev
+            # META:ATTACHMENT might exist with multiple dates at the same version (eg. updated comment), so we store the touched ones and not touch them again.
+            # We want the latest version, so we reverse the revs.
+            # Also we want to report errors only once per rev.
+            my $processedAttachments = {};
+            checkAttachmentsCurrent($meta, $attachments, $logger, $eachWeb, $eachTopic);
+            checkAttachmentsHistory($meta, $attachments, $logger, $processedAttachments, $topicinfo->{version} || 1, $ehistDir, $eachWeb, $eachTopic);
+
+            # check all revs
+            foreach my $rev ( reverse @$revs ) {
+                try {
+                    my $erevTextFile = "$ehistDir/$rev";
+                    my $revTextFile = _decode($erevTextFile);
+                    my $revText = _readTextFile($revTextFile);
+                    my $revMeta = Foswiki::Meta->new( $session, $eachWeb, $eachTopic, $revText );
+                    my $revTopicinfo = $revMeta->get('TOPICINFO');
+                    next unless $topicinfo;
+                    my $fileDate = ( _stat $revTextFile )[9];
+                    if($fileDate != $revTopicinfo->{date}) {
+                        $logger->("      * mdate $fileDate != stored date $topicinfo->{date} -> touching $erevTextFile\n");
+                        _utime($revTopicinfo->{date}, $revTopicinfo->{date}, $revTextFile);
+                        my $mFile = _decode($erevTextFile.'.m');
+                        _utime($topicinfo->{date}, $topicinfo->{date}, $mFile) if _e $mFile;
+                    }
+
+                    # check attachments
+                    checkAttachmentsHistory($revMeta, $attachments, $logger, $processedAttachments, $rev, $ehistDir, $eachWeb, $eachTopic);
+                } otherwise {
+                    $logger->("      * !ERROR! \@rev $rev: ". shift);
+                };
+            }
+        }
+    }
+}
+
 1;
 __END__
 Foswiki - The Free and Open Source Wiki, http://foswiki.org/
