@@ -1646,7 +1646,7 @@ sub _linkFile {
     my $eto = _encode($to, 1);
     if ( -d $efrom ) {
         $ok = 1;
-        foreach my $src ( <$efrom/*> ) {
+        foreach my $src ( <"$efrom"/*> ) {
             $src = Foswiki::Sandbox::untaintUnchecked( $src );
             $src = _decode($src);
             my $dst = $src;
