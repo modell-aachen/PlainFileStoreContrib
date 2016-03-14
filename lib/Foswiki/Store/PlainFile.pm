@@ -468,7 +468,7 @@ sub saveAttachment {
     _saveStream( $latest, $stream );
     my $hf = _historyFile( $meta, $name, $rn );
     _mkPathTo($hf);
-    File::Copy::copy( _encode( $latest, 1 ), _encode( $hf, 1 ) )
+    _linkFile( $latest, $hf )
       or die "PlainFile: failed to copy $latest to $hf: $!";
 
     my $comment;
@@ -477,6 +477,7 @@ sub saveAttachment {
             _utime( $options->{forcedate}, $options->{forcedate},
                 $latest )    # touch
               or die "PlainFile: could not touch $latest: $!";
+            # See saveTopic
             _utime( $options->{forcedate}, $options->{forcedate}, $hf )
               or die "PlainFile: could not touch $hf: $!";
         }
@@ -519,11 +520,14 @@ sub saveTopic {
     # doesn't matter, so long as it's >= $latest)
     my $hf = _historyFile( $meta, undef, $rn );
     _mkPathTo($hf);
-    File::Copy::copy( _encode( $latest, 1 ), _encode( $hf, 1 ) )
+    _linkFile( $latest, $hf )
       or die "PlainFile: failed to copy $latest to $hf: $!";
     if ( $options->{forcedate} ) {
         _utime( $options->{forcedate}, $options->{forcedate}, $latest )  # touch
           or die "PlainFile: could not touch $latest: $!";
+        # This is usually a nop, since it is supposed to be a hardlinked copy.
+        # However _linkFile does a fallback on copy, so let's be thorough.
+        # Same in saveAttachment.
         _utime( $options->{forcedate}, $options->{forcedate}, $hf )      # touch
           or die "PlainFile: could not touch $hf: $!";
     }
@@ -1208,7 +1212,7 @@ DONE
 
     my $hf = _historyFile( $meta, $attachment, $rev );
     _mkPathTo($hf);
-    File::Copy::copy( _encode( $latest, 1 ), _encode( $hf, 1 ) )
+    _linkFile( $latest, $hf )
       or die "PlainFile: failed to copy to $hf: $!";
 }
 
@@ -1638,11 +1642,11 @@ sub _linkFile {
     die "HardlinkedPlainFile: link target $to already exists" if _e $to;
     _mkPathTo($to);
     my $ok;
-    my $efrom = _encode($from);
-    my $eto = _encode($to);
+    my $efrom = _encode($from, 1);
+    my $eto = _encode($to, 1);
     if ( -d $efrom ) {
         $ok = 1;
-        foreach my $src ( <$efrom/*> ) {
+        foreach my $src ( <"$efrom"/*> ) {
             $src = Foswiki::Sandbox::untaintUnchecked( $src );
             $src = _decode($src);
             my $dst = $src;
