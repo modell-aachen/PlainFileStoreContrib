@@ -1174,6 +1174,8 @@ DONE
     my $rev = _latestIsNewer( \@revs, $meta, $attachment, $latest );
     return unless $rev;
 
+    @revs = ($rev) unless scalar @revs;
+
     # No existing revs; create
     # If this is a topic, correct the TOPICINFO
     unless ($attachment) {
