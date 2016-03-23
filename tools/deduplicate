@@ -70,11 +70,12 @@ sub wanted {
         $errors++;
         return;
     }
-    my $sha = Digest::SHA->new(512);
-    $sha->addfile($file);
-    my $hash = $sha->digest;
 
     my @stat = stat $file;
+
+    my $sha = Digest::SHA->new(512);
+    $sha->addfile($file);
+    my $hash = $stat[9] . "-" .$sha->digest;
 
     if ( defined $masters->{$hash} ) {
         my $masterOnly = 0;

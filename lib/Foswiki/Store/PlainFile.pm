@@ -1678,6 +1678,22 @@ sub _linkFile {
 sub touchFiles {
     my ( $store, $session, $logger, $web, $topic ) = @_;
 
+    sub dehardlink {
+        my ($efile, $logger) = @_;
+
+        return unless (_stat($efile))[3] gt 1;
+
+        my $file = _decode($efile);
+
+        $logger->("      * de-hardlinking $file\n");
+
+        my $eto = _encode("${file}_touchfiles_tmp");
+        my $ok = File::Copy::copy( $efile, $eto );
+        die "Could not dublicate $file to "._decode($eto) unless $ok;
+        _unlink($efile);
+        rename $eto, $efile;
+    }
+
     sub checkAttachmentsHistory {
         my ( $meta, $attachments, $logger, $processedAttachments, $rev, $ehistDir, $eachWeb, $eachTopic ) = @_;
         my $histDir = _decode($ehistDir);
@@ -1704,6 +1720,7 @@ sub touchFiles {
             if ( $fileDate != $attachment->{date} ) {
                 my $pubFileM = "$pubFile.m";
                 my $epubFileM = _encode($pubFileM);
+                dehardlink( $epubFile, $logger );
                 $logger->("      * mdate $fileDate != stored date $attachment->{date} -> touching $epubFile\n");
                 _utime($attachment->{date}, $attachment->{date}, $pubFile);
                 _utime($attachment->{date}, $attachment->{date}, $pubFileM) if _e $pubFileM;
@@ -1734,6 +1751,7 @@ sub touchFiles {
             }
             my $fileDate = ( _stat $pubFile )[9];
             if ( $fileDate != $attachment->{date} ) {
+                dehardlink( $epubFile, $logger );
                 $logger->("      * mdate $fileDate != stored date $attachment->{date} -> touching $epubFile\n");
                 _utime($attachment->{date}, $attachment->{date}, $pubFile);
             }
@@ -1773,6 +1791,7 @@ sub touchFiles {
             if ( $topicinfo ) {
                 my $fileDate = ( _stat $txtFile )[9];
                 if($topicinfo->{date} != $fileDate) {
+                    dehardlink( $etxtFile, $logger );
                     $logger->("      * mdate $fileDate != stored date $topicinfo->{date} -> touching $etxtFile\n");
                     _utime($topicinfo->{date}, $topicinfo->{date}, $txtFile);
                     my $mFile = _decode($etxtFile.'.m');
@@ -1810,6 +1829,7 @@ sub touchFiles {
                     next unless $topicinfo;
                     my $fileDate = ( _stat $revTextFile )[9];
                     if($fileDate != $revTopicinfo->{date}) {
+                        dehardlink( $erevTextFile, $logger );
                         $logger->("      * mdate $fileDate != stored date $topicinfo->{date} -> touching $erevTextFile\n");
                         _utime($revTopicinfo->{date}, $revTopicinfo->{date}, $revTextFile);
                         my $mFile = _decode($erevTextFile.'.m');
