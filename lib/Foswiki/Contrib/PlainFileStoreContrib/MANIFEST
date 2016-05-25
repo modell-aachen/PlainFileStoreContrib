@@ -6,6 +6,6 @@ lib/Foswiki/Store/PlainFile.pm 0644 Perl module
 lib/Foswiki/Contrib/PlainFileStoreContrib/Config.spec 0444 Configuration
 lib/Foswiki/Configure/Checkers/Store/PlainFile/Implementation.pm 0644
 lib/Foswiki/Configure/Checkers/Extensions/PlainFileStoreContrib/CheckForRCS.pm 0644
-tools/deduplicate 0655
-tools/touch_files.pl 0655
-tools/virtualhosts-touch_files.pl 0655
+tools/deduplicate 0755
+tools/touch_files.pl 0755
+tools/virtualhosts-touch_files.pl 0755
