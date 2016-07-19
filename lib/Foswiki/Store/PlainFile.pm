@@ -216,10 +216,10 @@ sub moveAttachment {
     if ( _e $oldLatest ) {
         my $newLatest = _latestFile( $newTopicObject, $newAtt );
         _moveFile( $oldLatest, $newLatest );
-        _moveFile(
-            _historyDir( $oldTopicObject, $oldAtt ),
-            _historyDir( $newTopicObject, $newAtt )
-        );
+
+        my $hsrc = _historyDir( $oldTopicObject, $oldAtt );
+        my $htar = _historyDir( $newTopicObject, $newAtt );
+        _moveFile($hsrc, $htar) if -e $hsrc;
         if ( $Foswiki::Store::STORE_FORMAT_VERSION < 1.2 ) {
             $this->recordChange(
                 cuid          => $cUID,
