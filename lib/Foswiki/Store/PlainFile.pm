@@ -216,10 +216,10 @@ sub moveAttachment {
     if ( _e $oldLatest ) {
         my $newLatest = _latestFile( $newTopicObject, $newAtt );
         _moveFile( $oldLatest, $newLatest );
-        _moveFile(
-            _historyDir( $oldTopicObject, $oldAtt ),
-            _historyDir( $newTopicObject, $newAtt )
-        );
+
+        my $hsrc = _historyDir( $oldTopicObject, $oldAtt );
+        my $htar = _historyDir( $newTopicObject, $newAtt );
+        _moveFile($hsrc, $htar) if -e $hsrc;
         if ( $Foswiki::Store::STORE_FORMAT_VERSION < 1.2 ) {
             $this->recordChange(
                 cuid          => $cUID,
@@ -1717,7 +1717,9 @@ sub touchFiles {
                 next;
             }
             my $fileDate = ( _stat $pubFile )[9];
-            if ( $fileDate != $attachment->{date} ) {
+            if ( -l $epubFile ) {
+                $logger->("      * skipping symlinked $epubFile\n");
+            } elsif ( $fileDate != $attachment->{date} ) {
                 my $pubFileM = "$pubFile.m";
                 my $epubFileM = _encode($pubFileM);
                 dehardlink( $epubFile, $logger );
@@ -1750,7 +1752,9 @@ sub touchFiles {
                 next;
             }
             my $fileDate = ( _stat $pubFile )[9];
-            if ( $fileDate != $attachment->{date} ) {
+            if ( -l $epubFile ) {
+                $logger->("      * skipping symlinked $epubFile\n");
+            } elsif ( $fileDate != $attachment->{date} ) {
                 dehardlink( $epubFile, $logger );
                 $logger->("      * mdate $fileDate != stored date $attachment->{date} -> touching $epubFile\n");
                 _utime($attachment->{date}, $attachment->{date}, $pubFile);
@@ -1772,6 +1776,13 @@ sub touchFiles {
         } else {
             @topics = map{ _encode($_); } Foswiki::Func::getTopicList( $eachWeb );
         }
+
+        my $ewebDir = _getData($eachWeb);
+        if ( -l $ewebDir ) {
+            $logger->("   * skipping symlinked $ewebDir\n");
+            next;
+        }
+
         foreach my $eachTopic ( @topics ) {
             $logger->("   * checking $eachWeb.$eachTopic\n");
 
@@ -1784,6 +1795,11 @@ sub touchFiles {
                 $logger->("      * !ERROR! " . shift . "\n");
             };
             next unless defined $text;
+
+            if ( -l $etxtFile ) {
+                $logger->("   * skipping symlinked $etxtFile\n");
+                next;
+            }
 
             # check .txt file
             my $meta = Foswiki::Meta->new( $session, $eachWeb, $eachTopic, $text );
