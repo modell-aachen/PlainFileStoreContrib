@@ -797,7 +797,7 @@ sub eachWeb {
           # other mechanism for performance. Since the definition
           # of a Web in this store is "a directory with a
           # WebPreferences.txt in it", this works.
-          grep { !/\./ && _e "$dir/$_$wptn" } _readdir($dh);
+          grep { !/\./ && !/,pfv$/ && _e "$dir/$_$wptn" } _readdir($dh);
         closedir($dh);
     }
 
