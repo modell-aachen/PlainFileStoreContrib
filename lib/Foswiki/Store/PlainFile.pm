@@ -75,6 +75,7 @@ my $wptn = "/$Foswiki::cfg{WebPrefsTopicName}.txt";
 
 our $json = JSON->new->pretty(0);
 our $inheritCache = {};
+our $noVirtualTopics = 0;
 
 BEGIN {
 
@@ -172,6 +173,12 @@ sub _createException {
     );
 }
 
+sub noVirtualTopics {
+    my $this = shift;
+
+    $noVirtualTopics = shift;
+}
+
 # Get virtual-web of either
 #    * ($this, $web, $topic)
 #    * ($this, $web, undef)
@@ -195,6 +202,8 @@ sub _getVirtualWeb {
         $web = $param;
         $topic = shift;
     }
+
+    return $web if $noVirtualTopics;
 
     if(defined $topic) {
         if($topic eq $Foswiki::cfg{WebPrefsTopicName}) {
