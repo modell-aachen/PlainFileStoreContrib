@@ -219,7 +219,7 @@ sub _getVirtualWeb {
     return $web if $noVirtualTopics;
 
     if(defined $topic) {
-        if($topic eq $Foswiki::cfg{WebPrefsTopicName}) {
+        if($topic eq $Foswiki::cfg{WebPrefsTopicName} || (defined $Foswiki::cfg{Stats}{TopicName} && $topic eq $Foswiki::cfg{Stats}{TopicName})) {
             return $web;
         }
 
