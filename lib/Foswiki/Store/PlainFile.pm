@@ -183,6 +183,15 @@ sub noVirtualTopics {
     $noVirtualTopics = shift;
 }
 
+sub doWithoutVirtualTopics {
+    my $this = shift;
+    my $sub = shift;
+
+    local $noVirtualTopics = 1;
+
+    return &$sub(@_);
+}
+
 # Get virtual-web of either
 #    * ($this, $web, $topic)
 #    * ($this, $web, undef)
