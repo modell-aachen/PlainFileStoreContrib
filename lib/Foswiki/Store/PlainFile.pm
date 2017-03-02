@@ -356,7 +356,7 @@ sub moveAttachment {
     ASSERT($newAtt) if DEBUG;
 
     throw Foswiki::OopsException( _createException($oldTopicObject )) if $oldTopicObject->web() ne _getVirtualWeb($oldTopicObject);
-    throw Foswiki::OopsException( _createException($newTopicObject )) if $newTopicObject->web() ne _getvirtualWeb($newTopicObject);
+    throw Foswiki::OopsException( _createException($newTopicObject )) if $newTopicObject->web() ne _getVirtualWeb($newTopicObject);
 
     # No need to save damage; we're not looking inside
 
