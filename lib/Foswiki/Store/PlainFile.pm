@@ -153,6 +153,10 @@ sub isVirtualTopic {
     return $web ne $vweb;
 }
 
+sub refreshCache {
+    $inheritCache = ();
+}
+
 sub _createException {
     my ( $param ) = shift;
 
