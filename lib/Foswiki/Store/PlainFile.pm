@@ -235,6 +235,7 @@ sub _getVirtualWeb {
     }
     while(1) {
         my $newiweb = $cache->{$iweb};
+        return $web unless webExists($newiweb); # moved away?
         unless( defined $newiweb ) {
             my $pref = Foswiki::Func::getPreferencesValue('INHERIT_TOPICS', $iweb);
             if($pref && Foswiki::Func::checkAccessPermission('VIEW', $id, undef, undef, $pref)) {
@@ -482,6 +483,8 @@ sub moveTopic {
 # Implement Foswiki::Store
 sub moveWeb {
     my ( $this, $oldWebObject, $newWebObject, $cUID ) = @_;
+
+    # TODO: clear cache
 
     # No need to save damage; we're not looking inside
 
