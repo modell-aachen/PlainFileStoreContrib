@@ -226,7 +226,7 @@ sub _getVirtualWeb {
         return $web if _topicExists($web, $topic);
     }
 
-    my $iweb = $web;
+    my $iweb = $web =~ s#[/.]$##r;
     my $id = Foswiki::Func::getCanonicalUserID();
     $id = $Foswiki::cfg{DefaultUserWikiName} unless defined $id; # XXX how can this happen and what does it mean?
     my $cache = $inheritCache->{$id};
@@ -235,9 +235,9 @@ sub _getVirtualWeb {
     }
     while(1) {
         my $newiweb = $cache->{$iweb};
-        return $web unless webExists($newiweb); # moved away?
         unless( defined $newiweb ) {
-            my $pref = Foswiki::Func::getPreferencesValue('INHERIT_TOPICS', $iweb);
+            my $pref = Foswiki::Func::getPreferencesValue('INHERIT_TOPICS', $iweb) if _webExists($iweb); # may have moved away
+            $pref =~ s#[./]$## if defined $pref;
             if($pref && Foswiki::Func::checkAccessPermission('VIEW', $id, undef, undef, $pref)) {
                 $newiweb = $pref;
             } else {
@@ -924,6 +924,12 @@ sub _atomicUnlock {
 # Implement Foswiki::Store
 sub webExists {
     my ( $this, $web ) = @_;
+
+    return _webExists($web);
+}
+
+sub _webExists {
+    my $web = shift;
 
     return 0 unless defined $web;
     $web =~ s#\.#/#g;
