@@ -1,0 +1,17 @@
+%TMPL:INCLUDE{"oops"}%
+
+%TMPL:DEF{"titleaction"}%%MAKETEXT{"(virtual topic error)"}% %TMPL:END%
+
+%TMPL:DEF{"webaction"}% *%MAKETEXT{"Attention"}%* %TMPL:END%
+
+%TMPL:DEF{"heading"}%%MAKETEXT{"This is a virtual topic!"}%%TMPL:END%
+
+%TMPL:DEF{"topicactionbuttons"}% [[%WEB%.%TOPIC%][%MAKETEXT{"OK"}%]] %TMPL:END%
+
+%TMPL:DEF{"message"}%
+%INSTANTIATE%
+%TMPL:END%
+
+%TMPL:DEF{"generic"}%
+%MAKETEXT{"You are not allowed to modify [_1], because it is a virtual topic." args="[[%WEB%.%TOPIC%]]"}%
+%TMPL:END%

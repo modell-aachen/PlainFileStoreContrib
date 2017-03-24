@@ -68,11 +68,14 @@ use Foswiki::Sandbox                       ();
 use Foswiki::Iterator::NumberRangeIterator ();
 use Foswiki::Users::BaseUserMapping        ();
 use Foswiki::Serialise                     ();
+use Foswiki::OopsException                 ();
 
 # Web Preferences topic *file* name
 my $wptn = "/$Foswiki::cfg{WebPrefsTopicName}.txt";
 
 our $json = JSON->new->pretty(0);
+our $inheritCache = {};
+our $noVirtualTopics = 0;
 
 BEGIN {
 
@@ -130,6 +133,8 @@ sub new {
           $Foswiki::cfg{RCS}{filePermission};
         $Foswiki::cfg{Store}{dirPermission} = $Foswiki::cfg{RCS}{dirPermission};
     }
+
+    $inheritCache = {};
     return $this;
 }
 
@@ -138,10 +143,151 @@ sub finish {
     $this->SUPER::finish();
     undef $this->{queryObj};
     undef $this->{searchQueryObj};
+    $inheritCache = {};
+}
+
+sub isVirtualTopic {
+    my ($this, $web, $topic) = @_;
+
+    my $vweb = _getVirtualWeb($web, $topic);
+    return $web ne $vweb;
+}
+
+sub refreshCache {
+    $inheritCache = ();
+}
+
+sub _createException {
+    my ( $param ) = shift;
+
+    my ($web, $topic);
+    if ( ref($param) ) {
+        $web = $param->web();
+        $topic = $param->topic();
+    } else {
+        $web = $param;
+        $topic = shift;
+    }
+
+    return (
+        "oopsvirtualtopic",
+        web => $web,
+        topic => $topic,
+        def => 'generic',
+    );
+}
+
+sub noVirtualTopics {
+    my $this = shift;
+
+    $noVirtualTopics = shift;
+}
+
+sub doWithoutVirtualTopics {
+    my $this = shift;
+    my $sub = shift;
+
+    local $noVirtualTopics = 1;
+
+    return &$sub(@_);
+}
+
+# Get virtual-web of either
+#    * ($this, $web, $topic)
+#    * ($this, $web, undef)
+#    * ($this, $meta)
+# If $topic is undef, get virtual-web of the entire web.
+sub getVirtualWeb {
+    my $this = shift;
+
+    return _getVirtualWeb(@_);
+}
+
+# same se getVirtualWeb, but without $this
+sub _getVirtualWeb {
+    my $param = shift;
+
+    my ($web, $topic);
+    if(ref($param)) {
+        $web = $param->web();
+        $topic = $param->topic();
+    } else {
+        $web = $param;
+        $topic = shift;
+    }
+
+    return $web if $noVirtualTopics;
+
+    if(defined $topic) {
+        if($topic eq $Foswiki::cfg{WebPrefsTopicName} || (defined $Foswiki::cfg{Stats}{TopicName} && $topic eq $Foswiki::cfg{Stats}{TopicName})) {
+            return $web;
+        }
+
+        return $web if _topicExists($web, $topic);
+    }
+
+    my $iweb = $web =~ s#[/.]$##r;
+    my $id = Foswiki::Func::getCanonicalUserID();
+    $id = $Foswiki::cfg{DefaultUserWikiName} unless defined $id; # XXX how can this happen and what does it mean?
+    my $cache = $inheritCache->{$id};
+    unless ( defined $cache ) {
+        $cache = $inheritCache->{$id} = { $Foswiki::cfg{SystemWebName} => $Foswiki::cfg{SystemWebName} };
+    }
+    while(1) {
+        my $newiweb = $cache->{$iweb};
+        unless( defined $newiweb ) {
+            my $pref = Foswiki::Func::getPreferencesValue('INHERIT_TOPICS', $iweb) if _webExists($iweb); # may have moved away
+            $pref =~ s#[./]$## if defined $pref;
+            if($pref && Foswiki::Func::checkAccessPermission('VIEW', $id, undef, undef, $pref)) {
+                $newiweb = $pref;
+            } else {
+                $newiweb = $iweb;
+            }
+            $cache->{$iweb} = $newiweb;
+        }
+        return $newiweb if (not defined $topic) || _topicExists($newiweb, $topic);
+        return $web if $newiweb eq $iweb;
+        $iweb = $newiweb;
+    }
+    return $iweb;
+}
+
+sub _virtualize {
+    my $sub = shift;
+    my $meta = shift;
+
+    my $originalWeb = $meta->web();
+    $meta->web(_getVirtualWeb($meta));
+
+    my $result = &$sub(@_);
+
+    $meta->web($originalWeb);
+    return $result;
+}
+
+sub _virtualizeList {
+    my $sub = shift;
+    my $meta = shift;
+
+    my $originalWeb = $meta->web();
+    $meta->web(_getVirtualWeb($meta));
+
+    my @result = &$sub(@_);
+
+    $meta->web($originalWeb);
+    return @result;
 }
 
 # Implement Foswiki::Store
 sub readTopic {
+    my ( $this, $meta, $version ) = @_;
+
+    my @ret = _virtualizeList(\&_readTopic, $meta, $this, $meta, $version);
+
+    return @ret;
+}
+
+sub _readTopic {
     my ( $this, $meta, $version ) = @_;
 
     # check that the requested revision actually exists
@@ -210,6 +356,9 @@ sub moveAttachment {
     ASSERT($oldAtt) if DEBUG;
     ASSERT($newAtt) if DEBUG;
 
+    throw Foswiki::OopsException( _createException($oldTopicObject )) if $oldTopicObject->web() ne _getVirtualWeb($oldTopicObject);
+    throw Foswiki::OopsException( _createException($newTopicObject )) if $newTopicObject->web() ne _getVirtualWeb($newTopicObject);
+
     # No need to save damage; we're not looking inside
 
     my $oldLatest = _latestFile( $oldTopicObject, $oldAtt );
@@ -236,6 +385,14 @@ sub moveAttachment {
 
 # Implement Foswiki::Store
 sub copyAttachment {
+    my ( $this, $oldTopicObject, $oldAtt, $newTopicObject, $newAtt, $cUID ) =
+      @_;
+
+    throw Foswiki::OopsException( _createException($newTopicObject) ) if $newTopicObject->web() ne _getVirtualWeb($newTopicObject);
+    return _virtualize( \&_copyAttachment, $oldTopicObject, @_ );
+}
+
+sub _copyAttachment {
     my ( $this, $oldTopicObject, $oldAtt, $newTopicObject, $newAtt, $cUID ) =
       @_;
 
@@ -273,6 +430,12 @@ sub copyAttachment {
 sub attachmentExists {
     my ( $this, $meta, $att ) = @_;
 
+    return _virtualize(\&_attachmentExists, $meta, $this, $meta, $att);
+}
+
+sub _attachmentExists {
+    my ( $this, $meta, $att ) = @_;
+
     ASSERT($att) if DEBUG;
 
     # No need to save damage; we're not looking inside
@@ -283,6 +446,8 @@ sub attachmentExists {
 # Implement Foswiki::Store
 sub moveTopic {
     my ( $this, $oldTopicObject, $newTopicObject, $cUID ) = @_;
+
+    throw Foswiki::OopsException( _createException( $oldTopicObject ) ) if $oldTopicObject->web() ne _getVirtualWeb($oldTopicObject);
 
     _saveDamage($oldTopicObject);
 
@@ -319,6 +484,8 @@ sub moveTopic {
 sub moveWeb {
     my ( $this, $oldWebObject, $newWebObject, $cUID ) = @_;
 
+    # TODO: clear cache
+
     # No need to save damage; we're not looking inside
 
     my $oldbase = _getData($oldWebObject);
@@ -351,6 +518,12 @@ sub moveWeb {
 # Implement Foswiki::Store
 sub testAttachment {
     my ( $this, $meta, $att, $test ) = @_;
+
+    return _virtualize(\&_testAttachment, $meta, @_);
+}
+
+sub _testAttachment {
+    my ( $this, $meta, $att, $test ) = @_;
     ASSERT($att) if DEBUG;
     my $fn = _encode( _latestFile( $meta, $att ), 1 );
     return eval "-$test '$fn'";
@@ -359,12 +532,24 @@ sub testAttachment {
 # Implement Foswiki::Store
 sub openAttachment {
     my ( $this, $meta, $att, $mode, @opts ) = @_;
+
+    return _virtualize(\&_openAttachment, $meta, @_);
+}
+
+sub _openAttachment {
+    my ( $this, $meta, $att, $mode, @opts ) = @_;
     ASSERT($att) if DEBUG;
     return _openBinaryStream( $meta, $att, $mode, @opts );
 }
 
 # Implement Foswiki::Store
 sub getRevisionHistory {
+    my ( $this, $meta, $attachment ) = @_;
+
+    return _virtualize(\&_getRevisionHistory, $meta, @_);
+}
+
+sub _getRevisionHistory {
     my ( $this, $meta, $attachment ) = @_;
 
     unless ( _d _historyDir( $meta, $attachment ) ) {
@@ -385,12 +570,24 @@ sub getRevisionHistory {
 sub getNextRevision {
     my ( $this, $meta ) = @_;
 
+    return _virtualize(\&_getNextRevision, $meta, @_);
+}
+
+sub _getNextRevision {
+    my ( $this, $meta ) = @_;
+
     my @revs;
     return _numRevisions( \@revs, $meta ) + 1;
 }
 
 # Implement Foswiki::Store
 sub getRevisionDiff {
+    my ( $this, $meta, $rev2, $contextLines ) = @_;
+
+    return _virtualize( \&_getRivisionDiff, $meta, @_ );
+}
+
+sub _getRevisionDiff {
     my ( $this, $meta, $rev2, $contextLines ) = @_;
 
     my $rev1 = $meta->getLoadedRev();
@@ -412,6 +609,12 @@ sub getRevisionDiff {
 
 # Implement Foswiki::Store
 sub getVersionInfo {
+    my ( $this, $meta, $rev, $attachment ) = @_;
+
+    return _virtualize( \&_getVersionInfo, $meta, @_);
+}
+
+sub _getVersionInfo {
     my ( $this, $meta, $rev, $attachment ) = @_;
 
     my $df;
@@ -451,6 +654,13 @@ sub getVersionInfo {
 
 # Implement Foswiki::Store
 sub saveAttachment {
+    my ( $this, $meta, $name, $stream, $cUID, $options ) = @_;
+
+    return _virtualize( \&_saveAttachment, $meta, @_);
+}
+
+# SMELL: $options not currently supported by the core
+sub _saveAttachment {
 
     # SMELL: $options not currently supported by the core
     my ( $this, $meta, $name, $stream, $cUID, $options ) = @_;
@@ -499,6 +709,8 @@ sub saveAttachment {
 # Implement Foswiki::Store
 sub saveTopic {
     my ( $this, $meta, $cUID, $options ) = @_;
+
+    throw Foswiki::OopsException( _createException($meta) ) if $meta->web ne _getVirtualWeb($meta);
 
     _saveDamage($meta);
 
@@ -554,6 +766,8 @@ sub saveTopic {
 sub repRev {
     my ( $this, $meta, $cUID, %options ) = @_;
 
+    throw Foswiki::OopsException( _createException( $meta ) ) if $meta->web() ne _getVirtualWeb($meta);
+
     _saveDamage($meta);
 
     my @revs;
@@ -601,6 +815,8 @@ sub repRev {
 # Implement Foswiki::Store
 sub delRev {
     my ( $this, $meta, $cUID ) = @_;
+
+    throw Foswiki::OopsException( _createException( $meta ) ) if $meta->web() ne _getVirtualWeb($meta);
 
     _saveDamage($meta);
 
@@ -660,6 +876,12 @@ sub delRev {
 # Implement Foswiki::Store
 sub atomicLockInfo {
     my ( $this, $meta ) = @_;
+
+    return _virtualize( \&_atomicLockInfo, $meta, @_ );
+}
+
+sub _atomicLockInfo {
+    my ( $this, $meta ) = @_;
     my $filename = _getData($meta) . '.lock';
     if ( _e $filename ) {
         my $t = _readTextFile($filename);
@@ -672,12 +894,24 @@ sub atomicLockInfo {
 # (doesn't work on all platforms)
 sub atomicLock {
     my ( $this, $meta, $cUID ) = @_;
+
+    return _virtualize( \&_atomicLock, $meta, @_ );
+}
+
+sub _atomicLock {
+    my ( $this, $meta, $cUID ) = @_;
     my $filename = _getData($meta) . '.lock';
     _saveFile( $filename, $cUID . "\n" . time );
 }
 
 # Implement Foswiki::Store
 sub atomicUnlock {
+    my ( $this, $meta, $cUID ) = @_;
+
+    return _virtualize( \&_atomicUnlock, $meta, @_ );
+}
+
+sub _atomicUnlock {
     my ( $this, $meta, $cUID ) = @_;
 
     my $filename = _getData($meta) . '.lock';
@@ -690,6 +924,12 @@ sub atomicUnlock {
 # Implement Foswiki::Store
 sub webExists {
     my ( $this, $web ) = @_;
+
+    return _webExists($web);
+}
+
+sub _webExists {
+    my $web = shift;
 
     return 0 unless defined $web;
     $web =~ s#\.#/#g;
@@ -716,6 +956,15 @@ sub webExists {
 sub topicExists {
     my ( $this, $web, $topic ) = @_;
 
+    my $exists = _topicExists($web, $topic);
+    return $exists if $exists;
+
+    return _topicExists(_getVirtualWeb($web, $topic), $topic);
+}
+
+sub _topicExists {
+    my ( $web, $topic ) = @_;
+
     return 0 unless defined $web && $web ne '';
     $web =~ s#\.#/#g;
     return 0 unless defined $topic && $topic ne '';
@@ -728,11 +977,19 @@ sub topicExists {
 sub getApproxRevTime {
     my ( $this, $web, $topic ) = @_;
 
+    $web = _getVirtualWeb($web, $topic);
+
     return ( _stat( _latestFile( $web, $topic ) ) )[9] || 0;
 }
 
 # Implement Foswiki::Store
 sub eachAttachment {
+    my ( $this, $meta ) = @_;
+
+    return _virtualize( \&_eachAttachment, $meta, @_ );
+}
+
+sub _eachAttachment {
     my ( $this, $meta ) = @_;
 
     my $dh;
@@ -754,19 +1011,33 @@ sub eachTopic {
 
     require Foswiki::ListIterator;
 
+    my @list = sort @{$this->_eachTopic($meta, {})};
+    return new Foswiki::ListIterator( \@list );
+}
+
+sub _eachTopic {
+    my ( $this, $meta, $seen ) = @_;
+
+    my $web = $meta->web();
+    my $vWeb = _getVirtualWeb($web);
+
     my $dh;
-    opendir( $dh, _encode( _getData( $meta->web ), 1 ) )
-      or return new Foswiki::ListIterator( () );
+    opendir( $dh, _encode( _getData( $web ), 1 ) )
+      or return [];
 
     # the name filter is used to ensure we don't return filenames
     # that contain illegal characters as topic names.
     my @list =
       map { /^(.*)\.txt$/; $1; }
-      sort    # locale specific
-      grep { !/$Foswiki::cfg{NameFilter}/ && /\.txt$/ } _readdir($dh);
+      grep { !/$Foswiki::cfg{NameFilter}/ && /\.txt$/ && !$seen->{$_}++ } _readdir($dh);
     closedir($dh);
 
-    return new Foswiki::ListIterator( \@list );
+    if($vWeb ne $web) {
+        my $vmeta = Foswiki::Meta->new($meta->session(), $vWeb);
+        push @list, @{$this->_eachTopic($vmeta, $seen)};
+    }
+
+    return \@list;
 }
 
 # Implement Foswiki::Store
@@ -819,6 +1090,9 @@ sub eachWeb {
 # Implement Foswiki::Store
 sub remove {
     my ( $this, $cUID, $meta, $attachment ) = @_;
+
+    throw Foswiki::OopsException( _createException( $meta ) ) unless $meta->web() eq _getVirtualWeb($meta->web(), $meta->topic());
+
     my $f;
     if ( $meta->topic ) {
 
@@ -899,6 +1173,12 @@ sub query {
 sub getRevisionAtTime {
     my ( $this, $meta, $time ) = @_;
 
+    return _virtualize( \&_getRevisionsAtTime, $meta, @_ );
+}
+
+sub _getRevisionAtTime {
+    my ( $this, $meta, $time ) = @_;
+
     my $hd = _historyDir($meta);
     my $d;
     unless ( opendir( $d, _encode( $hd, 1 ) ) ) {
@@ -937,6 +1217,8 @@ sub getLease {
 sub setLease {
     my ( $this, $meta, $lease ) = @_;
 
+    throw Foswiki::OopsException( _createException( $meta ) ) if $meta->web() ne _getVirtualWeb($meta);
+
     my $filename = _getData($meta) . '.lease';
     if ($lease) {
         _saveFile( $filename, join( "\n", %$lease ) );
@@ -971,6 +1253,14 @@ sub removeSpuriousLeases {
 
 # Copy a topic and all attachments (by hardlinking them).
 sub copyTopic {
+    my ( $this, $oldTopicObject, $newTopicObject, $cUID ) = @_;
+
+    throw Foswiki::OopsException( _createException( $newTopicObject ) ) if $newTopicObject->web() ne _getVirtualWeb($newTopicObject);
+
+    return _virtualize( \&_copyTopic, $oldTopicObject, @_ );
+}
+
+sub _copyTopic {
     my ( $this, $oldTopicObject, $newTopicObject, $cUID ) = @_;
 
     Foswiki::Store::PlainFile::_saveDamage($oldTopicObject);
