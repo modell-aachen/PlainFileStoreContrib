@@ -877,7 +877,7 @@ sub delRev {
 sub atomicLockInfo {
     my ( $this, $meta ) = @_;
 
-    return _virtualize( \&_atomicLockInfo, $meta, @_ );
+    return _virtualizeList( \&_atomicLockInfo, $meta, @_ );
 }
 
 sub _atomicLockInfo {
