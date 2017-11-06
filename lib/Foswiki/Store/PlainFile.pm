@@ -1177,7 +1177,7 @@ sub query {
 sub getRevisionAtTime {
     my ( $this, $meta, $time ) = @_;
 
-    return _virtualize( \&_getRevisionsAtTime, $meta, @_ );
+    return _virtualize( \&_getRevisionAtTime, $meta, @_ );
 }
 
 sub _getRevisionAtTime {
