@@ -1095,7 +1095,9 @@ sub eachWeb {
 sub remove {
     my ( $this, $cUID, $meta, $attachment ) = @_;
 
-    throw Foswiki::OopsException( _createException( $meta ) ) unless $meta->web() eq _getVirtualWeb($meta->web(), $meta->topic());
+    if($meta->topic()) {
+        throw Foswiki::OopsException( _createException( $meta ) ) unless $meta->web() eq _getVirtualWeb($meta->web(), $meta->topic());
+    }
 
     my $f;
     if ( $meta->topic ) {
