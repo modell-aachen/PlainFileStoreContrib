@@ -205,7 +205,7 @@ sub getVirtualWeb {
 
 # same se getVirtualWeb, but without $this
 sub _getVirtualWeb {
-    my $param = shift;
+    my $param = $_[0];
 
     my ($web, $topic);
     if(ref($param)) {
@@ -213,9 +213,11 @@ sub _getVirtualWeb {
         $topic = $param->topic();
     } else {
         $web = $param;
-        $topic = shift;
+        $topic = $_[1];
     }
     $web =~ s#\.#/#g;
+
+    my $noAclCheck = $_[2];
 
     return $web if $noVirtualTopics;
 
@@ -242,7 +244,7 @@ sub _getVirtualWeb {
                 $pref =~ s#\.#/#g;
                 $pref =~ s#/$##;
             }
-            if($pref && Foswiki::Func::checkAccessPermission('VIEW', $id, undef, undef, $pref)) {
+            if($pref && ($noAclCheck || Foswiki::Func::checkAccessPermission('VIEW', $id, undef, undef, $pref))) {
                 $newiweb = $pref;
             } else {
                 $newiweb = $iweb;
@@ -963,7 +965,7 @@ sub topicExists {
     my $exists = _topicExists($web, $topic);
     return $exists if $exists;
 
-    return _topicExists(_getVirtualWeb($web, $topic), $topic);
+    return _topicExists(_getVirtualWeb($web, $topic, 1), $topic);
 }
 
 sub _topicExists {
